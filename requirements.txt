@@ -1,0 +1,43 @@
+# Core dependencies (GPU optimized)
+torch>=1.11.0
+transformers>=4.21.0
+sentence-transformers>=2.2.2
+elasticsearch>=8.5.0
+pandas>=1.5.0
+numpy>=1.21.0
+scikit-learn>=1.1.0
+
+# Sanskrit processing
+indic-transliteration>=2.3.44
+pyinflection>=0.5.1
+
+# Text processing
+nltk>=3.7
+spacy>=3.4.0
+
+# Web scraping and APIs
+requests>=2.28.0
+beautifulsoup4>=4.11.0
+
+# LLM APIs
+google-genai>=0.1.0
+
+# Evaluation and visualization
+matplotlib>=3.6.0
+seaborn>=0.12.0
+wandb>=0.13.0
+tqdm>=4.64.0
+
+# Development
+pytest>=7.2.0
+black>=22.10.0
+isort>=5.10.0
+flake8>=5.0.0
+
+# Configuration
+pydantic>=1.10.0
+python-dotenv>=0.21.0
+pyyaml>=6.0
+
+# Web framework
+flask>=2.3.0

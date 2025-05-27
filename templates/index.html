@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ULLU - Sanskrit Quote Search</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            color: white;
+        }
+        
+        .header h1 {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+        
+        .search-container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+        }
+        
+        .search-box {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        #queryInput {
+            flex: 1;
+            padding: 15px 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        #queryInput:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        #searchBtn {
+            padding: 15px 30px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        #searchBtn:hover {
+            transform: translateY(-2px);
+        }
+        
+        #searchBtn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            display: none;
+        }
+        
+        .results-container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            display: none;
+        }
+        
+        .results-header {
+            border-bottom: 2px solid #f0f0f0;
+            padding-bottom: 15px;
+            margin-bottom: 25px;
+        }
+        
+        .results-header h3 {
+            color: #333;
+            font-size: 1.5rem;
+        }
+        
+        .query-info {
+            color: #666;
+            margin-top: 5px;
+            font-style: italic;
+        }
+        
+        .result-item {
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .result-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .result-rank {
+            display: inline-block;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            margin-right: 15px;
+        }
+        
+        .result-text {
+            font-size: 1.1rem;
+            line-height: 1.8;
+            margin: 15px 0;
+            color: #333;
+            font-family: 'Noto Sans Devanagari', serif;
+        }
+        
+        .result-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 15px;
+            font-size: 0.9rem;
+            color: #666;
+        }
+        
+        .meta-item {
+            background: #f5f5f5;
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
+        
+        .score {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+        }
+        
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border: 1px solid #fcc;
+        }
+        
+        .no-results {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            color: #666;
+        }
+        
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .search-box {
+                flex-direction: column;
+            }
+            
+            .container {
+                padding: 10px;
+            }
+            
+            .search-container, .results-container {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🦉 ULLU</h1>
+            <p>Sanskrit Quote Retrieval System</p>
+        </div>
+        
+        <div class="search-container">
+            <div class="search-box">
+                <input type="text" id="queryInput" placeholder="Search for Sanskrit quotes... (e.g., dharma, righteousness, सत्य)" autocomplete="off">
+                <button id="searchBtn">Search</button>
+            </div>
+            
+            <div class="stats" id="systemStats">
+                <div>🔄 Loading system status...</div>
+            </div>
+        </div>
+        
+        <div class="loading" id="loading">
+            <p>🔍 Searching through Sanskrit wisdom...</p>
+        </div>
+        
+        <div class="results-container" id="resultsContainer">
+            <div class="results-header">
+                <h3 id="resultsTitle">Search Results</h3>
+                <div class="query-info" id="queryInfo"></div>
+            </div>
+            <div id="resultsContent"></div>
+        </div>
+    </div>
+    
+    <script>
+        // Global variables
+        let isSearching = false;
+        
+        // DOM elements
+        const queryInput = document.getElementById('queryInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const loading = document.getElementById('loading');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const resultsTitle = document.getElementById('resultsTitle');
+        const queryInfo = document.getElementById('queryInfo');
+        const resultsContent = document.getElementById('resultsContent');
+        const systemStats = document.getElementById('systemStats');
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSystemStats();
+            
+            // Event listeners
+            searchBtn.addEventListener('click', performSearch);
+            queryInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    performSearch();
+                }
+            });
+            
+            // Sample queries for demonstration
+            const sampleQueries = ['dharma', 'truth', 'wisdom', 'karma', 'moksha'];
+            queryInput.placeholder = `Search for Sanskrit quotes... (try: ${sampleQueries.join(', ')})`;
+        });
+        
+        async function loadSystemStats() {
+            try {
+                const response = await fetch('/health');
+                const health = await response.json();
+                
+                let statusHTML = `
+                    <div>📚 ${health.total_quotes || 0} quotes loaded</div>
+                    <div>🔍 Multi-index: ${health.multi_index_ready ? '✅' : '❌'}</div>
+                    <div>🧠 Gemini LLM: ${health.gemini_available ? '✅' : '⚠️'}</div>
+                `;
+                
+                systemStats.innerHTML = statusHTML;
+            } catch (error) {
+                systemStats.innerHTML = '<div>❌ Unable to load system status</div>';
+            }
+        }
+        
+        async function performSearch() {
+            const query = queryInput.value.trim();
+            
+            if (!query) {
+                showError('Please enter a search query');
+                return;
+            }
+            
+            if (isSearching) return;
+            
+            isSearching = true;
+            searchBtn.disabled = true;
+            searchBtn.textContent = 'Searching...';
+            
+            // Show loading
+            loading.style.display = 'block';
+            resultsContainer.style.display = 'none';
+            
+            try {
+                const response = await fetch('/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ query: query })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Search failed');
+                }
+                
+                displayResults(data);
+                
+            } catch (error) {
+                showError(`Search failed: ${error.message}`);
+            } finally {
+                isSearching = false;
+                searchBtn.disabled = false;
+                searchBtn.textContent = 'Search';
+                loading.style.display = 'none';
+            }
+        }
+        
+        function displayResults(data) {
+            resultsTitle.textContent = `Found ${data.total_found} results`;
+            queryInfo.innerHTML = `
+                Query: "<strong>${data.query}</strong>"
+                ${data.normalized_query !== data.query ? `<br>Normalized: "${data.normalized_query}"` : ''}
+                ${data.llm_enhanced ? '<br>🧠 Enhanced with LLM scoring' : ''}
+            `;
+            
+            if (data.results && data.results.length > 0) {
+                let htmlContent = '';
+                
+                data.results.forEach(result => {
+                    htmlContent += `
+                        <div class="result-item">
+                            <span class="result-rank">${result.rank}</span>
+                            <div class="result-text">${escapeHtml(result.text)}</div>
+                            <div class="result-meta">
+                                <span class="meta-item"><strong>Work:</strong> ${escapeHtml(result.work)}</span>
+                                <span class="meta-item"><strong>Category:</strong> ${escapeHtml(result.category)}</span>
+                                <span class="meta-item"><strong>Author:</strong> ${escapeHtml(result.author)}</span>
+                                <span class="meta-item score"><strong>Score:</strong> ${result.score.toFixed(3)}</span>
+                                ${result.llm_score ? `<span class="meta-item score"><strong>LLM Score:</strong> ${result.llm_score.toFixed(1)}</span>` : ''}
+                            </div>
+                            ${result.llm_explanation ? `<div style="margin-top: 10px; padding: 10px; background: #f0f8ff; border-radius: 5px; font-size: 0.9rem;"><strong>AI Analysis:</strong> ${escapeHtml(result.llm_explanation)}</div>` : ''}
+                        </div>
+                    `;
+                });
+                
+                resultsContent.innerHTML = htmlContent;
+            } else {
+                resultsContent.innerHTML = `
+                    <div class="no-results">
+                        <h3>No results found</h3>
+                        <p>Try different keywords or check your spelling</p>
+                    </div>
+                `;
+            }
+            
+            resultsContainer.style.display = 'block';
+        }
+        
+        function showError(message) {
+            resultsContent.innerHTML = `<div class="error">${escapeHtml(message)}</div>`;
+            resultsContainer.style.display = 'block';
+            resultsTitle.textContent = 'Error';
+            queryInfo.textContent = '';
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
