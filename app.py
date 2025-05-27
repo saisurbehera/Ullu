@@ -226,24 +226,79 @@ def search():
             return jsonify({'error': 'Search system not initialized'}), 500
         
         # Normalize query
+        print(f"\n{'='*80}")
+        print(f"NEW SEARCH REQUEST")
+        print(f"{'='*80}")
+        print(f"Original Query: '{query}'")
+        
         if normalizer:
             try:
                 normalized_query = normalizer.normalize_text(query)
+                print(f"Normalized Query: '{normalized_query}'")
             except Exception as e:
                 print(f"Normalization error: {e}")
                 normalized_query = query.lower().strip()
+                print(f"Fallback normalization: '{normalized_query}'")
         else:
             normalized_query = query.lower().strip()
+            print(f"Basic normalization (no normalizer): '{normalized_query}'")
         
-        # Retrieve top 5 results
+        # Retrieve top 128 results
         try:
-            results = multi_index.search(normalized_query, top_k=5)
-            print(f"Search results for '{normalized_query}': {len(results)} found")
+            results = multi_index.search(normalized_query, top_k=128)
+            print(f"\n{'='*80}")
+            print(f"SEARCH RESULTS for query: '{query}' (normalized: '{normalized_query}')")
+            print(f"{'='*80}")
+            print(f"Total results found: {len(results)}")
+            print(f"{'='*80}\n")
+            
+            # Print top 10 results and summary for the rest
+            print(f"\nShowing top 10 results (out of {len(results)}):\n")
+            
+            for i, result in enumerate(results[:10], 1):
+                print(f"RESULT {i}:")
+                print(f"  Score: {result.get('score', 0):.4f}")
+                if isinstance(result, dict):
+                    print(f"  Doc ID: {result.get('doc_id', 'N/A')}")
+                    print(f"  Text: {result.get('text', '')[:150]}...")
+                    if result.get('partial_match'):
+                        print(f"  Partial Match: Yes (score: {result.get('partial_score', 0):.4f})")
+                    if result.get('kg_score'):
+                        print(f"  KG Score: {result.get('kg_score', 0):.4f}")
+                    metadata = result.get('metadata', {})
+                    if metadata:
+                        print(f"  Work: {metadata.get('work', 'Unknown')}, Category: {metadata.get('category', 'Unknown')}")
+                print(f"{'-'*60}")
+            
+            # Summary statistics for all results
+            if len(results) > 10:
+                print(f"\nSummary of remaining {len(results) - 10} results:")
+                scores = [r.get('score', 0) for r in results[10:]]
+                print(f"  Score range: {min(scores):.4f} - {max(scores):.4f}")
+                print(f"  Average score: {sum(scores)/len(scores):.4f}")
+                
+                # Count partial matches
+                partial_matches = sum(1 for r in results if r.get('partial_match'))
+                print(f"  Total partial matches: {partial_matches}/{len(results)}")
+                
+                # Count by work
+                work_counts = {}
+                for r in results:
+                    work = r.get('metadata', {}).get('work', 'Unknown')
+                    work_counts[work] = work_counts.get(work, 0) + 1
+                
+                print(f"\n  Results by work (top 5):")
+                for work, count in sorted(work_counts.items(), key=lambda x: x[1], reverse=True)[:5]:
+                    print(f"    - {work}: {count} results")
+            
+            print(f"\n{'='*80}\n")
         except Exception as e:
             print(f"Search error: {e}")
+            import traceback
+            traceback.print_exc()
             return jsonify({'error': f'Search execution failed: {str(e)}'}), 500
         
-        # Format results
+        # Format results - process all 128 but only return top ones to UI
         search_results = []
         for rank, result in enumerate(results, 1):
             if isinstance(result, dict):
@@ -318,26 +373,65 @@ def search():
         # Optional: Use Gemini for re-ranking (if available)
         if gemini_client and len(search_results) > 1:
             try:
-                passages = [r['text'] for r in search_results]
+                print(f"\n{'='*80}")
+                print("GEMINI LLM RE-RANKING")
+                print(f"{'='*80}")
+                
+                # Only send top 20 results to Gemini (to manage API costs and response time)
+                gemini_candidates = search_results[:20]
+                passages = [r['text'] for r in gemini_candidates]
+                
+                print(f"Sending top {len(passages)} results to Gemini for re-ranking...")
                 llm_scores = gemini_client.filter_relevant_passages(query, passages)
                 
-                # Update scores with LLM evaluation
-                for i, llm_eval in enumerate(llm_scores):
-                    if i < len(search_results):
-                        search_results[i]['llm_score'] = llm_eval.get('relevance_score', 5)
-                        search_results[i]['llm_explanation'] = llm_eval.get('explanation', '')
+                print(f"Gemini evaluated {len(llm_scores)} passages:")
                 
-                # Re-sort by LLM score
-                search_results.sort(key=lambda x: x.get('llm_score', x['score']), reverse=True)
+                # Update scores with LLM evaluation (only for the candidates we sent)
+                for i, llm_eval in enumerate(llm_scores):
+                    if i < len(gemini_candidates):
+                        relevance_score = llm_eval.get('relevance_score', 5)
+                        explanation = llm_eval.get('explanation', '')
+                        
+                        gemini_candidates[i]['llm_score'] = relevance_score
+                        gemini_candidates[i]['llm_explanation'] = explanation
+                        
+                        print(f"\nPassage {i+1}:")
+                        print(f"  Original Score: {gemini_candidates[i]['score']:.4f}")
+                        print(f"  LLM Relevance Score: {relevance_score}/10")
+                        print(f"  Explanation: {explanation}")
+                
+                # Re-sort all results by LLM score (those with LLM scores first)
+                # Sort so that LLM-scored results come first, sorted by LLM score
+                # Then remaining results sorted by original score
+                llm_scored = [r for r in search_results if 'llm_score' in r]
+                non_llm_scored = [r for r in search_results if 'llm_score' not in r]
+                
+                llm_scored.sort(key=lambda x: x.get('llm_score', 0), reverse=True)
+                non_llm_scored.sort(key=lambda x: x.get('score', 0), reverse=True)
+                
+                search_results = llm_scored + non_llm_scored
+                
+                print(f"\n{'='*80}")
+                print("FINAL RANKING (after LLM re-ranking):")
+                for i, result in enumerate(search_results[:5], 1):
+                    print(f"{i}. {result['text'][:100]}...")
+                    print(f"   LLM Score: {result.get('llm_score', 'N/A')}, Original Score: {result['score']:.4f}")
+                print(f"{'='*80}\n")
                 
             except Exception as e:
                 print(f"LLM re-ranking failed: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Return only top 10 results to UI (but we processed all 128)
+        top_results = search_results[:10]
         
         return jsonify({
             'query': query,
             'normalized_query': normalized_query,
-            'results': search_results,
+            'results': top_results,
             'total_found': len(search_results),
+            'total_returned': len(top_results),
             'llm_enhanced': gemini_client is not None
         })
         

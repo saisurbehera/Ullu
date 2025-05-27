@@ -288,9 +288,9 @@ class MultiIndex:
         
         # Weights for combining scores
         self.weights = {
-            'bm25': 0.5,
-            'ngram': 0.3,
-            'dense': 0.2
+            'bm25': 0.6,
+            'ngram': 0.4,
+            'dense': 0.0  # Disabled TF-IDF for now
         }
         
         self.documents = []
@@ -311,8 +311,12 @@ class MultiIndex:
         logger.info("Building n-gram index...")
         self.ngram_index.fit(documents)
         
-        logger.info("Building dense embedding index...")
-        self.dense_index.fit(documents)
+        # Skip dense embedding index for now (TF-IDF disabled)
+        if self.weights.get('dense', 0) > 0:
+            logger.info("Building dense embedding index...")
+            self.dense_index.fit(documents)
+        else:
+            logger.info("Skipping dense embedding index (weight = 0)")
         
         # Build partial matching index if enabled
         if self.partial_index:
@@ -348,12 +352,15 @@ class MultiIndex:
             # Get results from each index
             bm25_results = self.bm25_index.search(q, top_k * 2)
             ngram_results = self.ngram_index.search(q, top_k * 2)
-            dense_results = self.dense_index.search(q, top_k * 2)
+            
+            # Skip dense search if weight is 0
+            if self.weights.get('dense', 0) > 0:
+                dense_results = self.dense_index.search(q, top_k * 2)
+                self._combine_results(all_results, dense_results, 'dense', len(queries))
             
             # Normalize and combine scores
             self._combine_results(all_results, bm25_results, 'bm25', len(queries))
             self._combine_results(all_results, ngram_results, 'ngram', len(queries))
-            self._combine_results(all_results, dense_results, 'dense', len(queries))
         
         # Add partial matching results if enabled
         if use_partial and self.partial_index:
