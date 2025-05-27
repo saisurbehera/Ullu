@@ -5,15 +5,16 @@ Handles LLM-based filtering and confirmation tasks.
 """
 
 import os
+import json
 import logging
 from typing import List, Dict, Optional
 from pathlib import Path
 from dotenv import load_dotenv
 
 try:
-    from google import genai
+    import google.generativeai as genai
 except ImportError:
-    print("Google GenAI SDK not installed. Run: pip install google-genai")
+    print("Google GenAI SDK not installed. Run: pip install google-generativeai")
     genai = None
 
 logger = logging.getLogger(__name__)
@@ -37,22 +38,21 @@ class GeminiClient:
             )
         
         if genai is None:
-            raise ImportError("Google GenAI SDK not available. Install with: pip install google-genai")
+            raise ImportError("Google GenAI SDK not available. Install with: pip install google-generativeai")
         
-        # Initialize client
-        self.client = genai.Client(api_key=self.api_key)
-        self.model = "gemini-2.0-flash"
+        # Configure API key
+        genai.configure(api_key=self.api_key)
+        
+        # Initialize model
+        self.model_name = "gemini-1.5-flash"  # Use gemini-1.5-flash which is available
+        self.model = genai.GenerativeModel(self.model_name)
         
         logger.info("Gemini client initialized successfully")
     
     def generate_content(self, prompt: str, **kwargs) -> str:
         """Generate content using Gemini API."""
         try:
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=prompt,
-                **kwargs
-            )
+            response = self.model.generate_content(prompt, **kwargs)
             return response.text
         except Exception as e:
             logger.error(f"Gemini API error: {e}")
@@ -93,9 +93,22 @@ Please respond in this JSON format:
         
         try:
             response = self.generate_content(prompt)
-            # Parse JSON response (add error handling as needed)
-            import json
-            result = json.loads(response)
+            
+            # Debug: Print raw response
+            logger.debug(f"Raw Gemini response: {response[:500]}...")
+            
+            # Try to extract JSON from the response
+            # Sometimes Gemini returns markdown code blocks
+            if "```json" in response:
+                # Extract JSON from markdown code block
+                json_start = response.find("```json") + 7
+                json_end = response.find("```", json_start)
+                json_str = response[json_start:json_end].strip()
+            else:
+                json_str = response.strip()
+            
+            # Parse JSON response
+            result = json.loads(json_str)
             return result.get('evaluations', [])
         except json.JSONDecodeError as e:
             logger.error(f"JSON parsing error: {e}")

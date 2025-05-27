@@ -276,6 +276,28 @@ def search():
                 category = metadata.get('category', 'Unknown') if isinstance(metadata, dict) else 'Unknown'
                 author = metadata.get('author', 'Unknown') if isinstance(metadata, dict) else 'Unknown'
             
+            # Add KG information if available
+            kg_info = {}
+            if hasattr(result, 'get') and 'kg_score' in result:
+                kg_info['kg_score'] = result.get('kg_score', 0.0)
+                kg_info['combined_score'] = result.get('combined_score', score)
+                
+                # Extract entity information if features are present
+                if 'features' in result:
+                    features = result['features']
+                    kg_info['entity_overlap'] = {
+                        'deities': features.get('deities_overlap', 0),
+                        'sages': features.get('sages_overlap', 0),
+                        'works': features.get('works_overlap', 0),
+                        'concepts': features.get('concepts_overlap', 0)
+                    }
+            
+            # Add partial match information
+            partial_info = {}
+            if isinstance(result, dict) and result.get('partial_match'):
+                partial_info['is_partial'] = True
+                partial_info['partial_score'] = result.get('partial_score', 0.0)
+            
             formatted_result = {
                 'rank': rank,
                 'text': text,
@@ -284,6 +306,13 @@ def search():
                 'score': float(score),
                 'author': author
             }
+            
+            if kg_info:
+                formatted_result['kg_info'] = kg_info
+            
+            if partial_info:
+                formatted_result['partial_match'] = partial_info
+            
             search_results.append(formatted_result)
         
         # Optional: Use Gemini for re-ranking (if available)
@@ -351,7 +380,7 @@ if __name__ == '__main__':
     if load_components():
         print("\n✅ All components loaded successfully!")
         print("🌐 Starting web server...")
-        app.run(host='0.0.0.0', port=5000, debug=True)
+        app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
     else:
         print("\n❌ Failed to load components. Please check your setup.")
         print("Make sure you have:")

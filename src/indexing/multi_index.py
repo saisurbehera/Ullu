@@ -13,6 +13,22 @@ from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
+# Try to import KG components
+try:
+    from knowledge_graph import KGEnhancer
+    kg_available = True
+except ImportError:
+    kg_available = False
+    logger.info("Knowledge Graph enhancement not available")
+
+# Try to import partial matching
+try:
+    from .partial_match_index import PartialMatchIndex
+    partial_matching_available = True
+except ImportError:
+    partial_matching_available = False
+    logger.info("Partial matching not available")
+
 class BM25Index:
     """BM25 indexing for lexical retrieval."""
     
@@ -249,6 +265,27 @@ class MultiIndex:
         self.dense_index = DenseEmbeddingIndex()
         self.synonym_expander = SynonymExpander()
         
+        # Initialize KG enhancer if available
+        self.kg_enhancer = None
+        if kg_available and self.config.get('use_kg', True):
+            try:
+                self.kg_enhancer = KGEnhancer()
+                logger.info("Knowledge Graph enhancement enabled")
+            except Exception as e:
+                logger.warning(f"Failed to initialize KG enhancer: {e}")
+        
+        # Initialize partial matching if available
+        self.partial_index = None
+        if partial_matching_available and self.config.get('use_partial', True):
+            try:
+                self.partial_index = PartialMatchIndex(
+                    window_size=self.config.get('window_size', 10),
+                    overlap=self.config.get('overlap', 5)
+                )
+                logger.info("Partial matching enabled")
+            except Exception as e:
+                logger.warning(f"Failed to initialize partial matching: {e}")
+        
         # Weights for combining scores
         self.weights = {
             'bm25': 0.5,
@@ -277,10 +314,15 @@ class MultiIndex:
         logger.info("Building dense embedding index...")
         self.dense_index.fit(documents)
         
+        # Build partial matching index if enabled
+        if self.partial_index:
+            logger.info("Building partial matching index...")
+            self.partial_index.fit(documents)
+        
         self.is_fitted = True
         logger.info("Multi-index built successfully")
     
-    def search(self, query: str, top_k: int = 100, use_synonyms: bool = True) -> List[Dict]:
+    def search(self, query: str, top_k: int = 100, use_synonyms: bool = True, use_kg: bool = True, use_partial: bool = True) -> List[Dict]:
         """Search across all indices and combine results."""
         if not self.is_fitted:
             raise ValueError("Index not fitted. Call fit() first.")
@@ -290,7 +332,17 @@ class MultiIndex:
         if use_synonyms:
             queries = self.synonym_expander.expand_query(query)
         
+        # Expand query with KG if enabled
+        if use_kg and self.kg_enhancer:
+            try:
+                kg_expanded = self.kg_enhancer.expand_query(query, max_expansions=3)
+                queries.extend(kg_expanded[1:])  # Skip first as it's the original
+                queries = list(set(queries))  # Remove duplicates
+            except Exception as e:
+                logger.warning(f"KG query expansion failed: {e}")
+        
         all_results = defaultdict(float)
+        result_details = defaultdict(dict)  # Store additional info about results
         
         for q in queries:
             # Get results from each index
@@ -302,6 +354,26 @@ class MultiIndex:
             self._combine_results(all_results, bm25_results, 'bm25', len(queries))
             self._combine_results(all_results, ngram_results, 'ngram', len(queries))
             self._combine_results(all_results, dense_results, 'dense', len(queries))
+        
+        # Add partial matching results if enabled
+        if use_partial and self.partial_index:
+            try:
+                partial_results = self.partial_index.search(query, top_k * 2)
+                
+                for doc_idx, score in partial_results:
+                    # Boost existing results or add new ones
+                    if doc_idx in all_results:
+                        # Document found by both methods - strong signal
+                        all_results[doc_idx] = all_results[doc_idx] * 0.7 + score * 0.5
+                    else:
+                        # Found only by partial matching
+                        all_results[doc_idx] = score * 0.8
+                    
+                    result_details[doc_idx]['partial_match'] = True
+                    result_details[doc_idx]['partial_score'] = score
+                    
+            except Exception as e:
+                logger.warning(f"Partial matching failed: {e}")
         
         # Sort by combined score
         sorted_results = sorted(all_results.items(), key=lambda x: x[1], reverse=True)
@@ -315,9 +387,21 @@ class MultiIndex:
                 'score': score,
                 'metadata': self.metadata[doc_idx]
             }
+            
+            # Add partial match info if available
+            if doc_idx in result_details:
+                result.update(result_details[doc_idx])
+            
             final_results.append(result)
         
-        return final_results
+        # Apply KG enhancement if enabled
+        if use_kg and self.kg_enhancer and final_results:
+            try:
+                final_results = self.kg_enhancer.enhance_candidates(query, final_results[:top_k])
+            except Exception as e:
+                logger.warning(f"KG enhancement failed: {e}")
+        
+        return final_results[:top_k]
     
     def _combine_results(self, all_results: Dict, results: List[Tuple], 
                         index_type: str, num_queries: int):
@@ -343,10 +427,14 @@ class MultiIndex:
             'metadata': self.metadata,
             'bm25_index': self.bm25_index,
             'ngram_index': self.ngram_index,
-            'dense_embeddings': self.dense_index.embeddings,
+            'dense_index': self.dense_index,  # Save entire dense_index object
             'weights': self.weights,
             'config': self.config
         }
+        
+        # Save partial index if available
+        if self.partial_index:
+            index_data['partial_index'] = self.partial_index
         
         with open(path, 'wb') as f:
             pickle.dump(index_data, f)
@@ -362,9 +450,23 @@ class MultiIndex:
         self.metadata = index_data['metadata']
         self.bm25_index = index_data['bm25_index']
         self.ngram_index = index_data['ngram_index']
-        self.dense_index.embeddings = index_data['dense_embeddings']
+        
+        # Handle dense_index loading properly
+        if 'dense_index' in index_data:
+            self.dense_index = index_data['dense_index']
+        else:
+            # Legacy format - only embeddings saved
+            self.dense_index.embeddings = index_data.get('dense_embeddings')
+            # Reinitialize documents for the dense index
+            self.dense_index.documents = self.documents
+            
         self.weights = index_data['weights']
         self.config = index_data['config']
+        
+        # Load partial index if available
+        if 'partial_index' in index_data and partial_matching_available:
+            self.partial_index = index_data['partial_index']
+        
         self.is_fitted = True
         
         logger.info(f"Multi-index loaded from {path}")
